@@ -14,9 +14,12 @@ target C {
 
 import Display from "lib/Display.lf"
 import Motors from "lib/Motors.lf"
+import Encoders from "lib/Encoders.lf"
+
 
 reactor Robot {
   input drive:bool       // Toggle mode.
+  
   output notify:string   // Notify of mode change.
   output right_power:float
   output left_power:float
@@ -32,10 +35,10 @@ reactor Robot {
       if (drive->value) {
         lf_set_mode(DRIVING);
         lf_set(notify, "DRIVING");
-        lf_set(right_power, 0.9);
-        lf_set(left_power, 0.9);
+        lf_set(left_power, 0.098);
+        lf_set(right_power, 0.1);
+        
       }
-      
     =}
   }
 
@@ -44,27 +47,63 @@ reactor Robot {
       if (!drive->value) {
         lf_set_mode(STOPPED);
         lf_set(notify, "STOPPED");
-        lf_set(right_power, 0);
         lf_set(left_power, 0);
+        lf_set(right_power, 0);
       }
-     
     =}
   }
 }
 
+
+reactor AngleToDistance{
+  input left_rotation:int32_t;
+  input right_rotation:int32_t;
+  output left_distance:string;
+  output right_distance:string;
+  d = new Display();
+
+
+  reaction(left_rotation) -> d.line1 {=
+    static char buf[17];
+    float leftD = (left_rotation->value)/ 3586.4;
+    snprintf(buf, 17, "L: %.2fm", leftD);
+    lf_set(d.line1, buf);
+  =}
+
+  reaction(right_rotation) ->  d.line2 {=
+    static char buf[17];
+    float rightD = (right_rotation->value)/ 3586.4;
+    snprintf(buf, 17, "R: %.2fm", rightD);
+    lf_set(d.line2, buf);
+  =}
+
+}
+
+
 main reactor {
-  timer t(0, 2 sec)
-  state drive:bool = false
+  timer t(0, 1 sec)
+  state drive:bool = true
+  state left_rotation:int = 0;
+  state right_rotation:int = 0;
+
   robot = new Robot()
   display = new Display()
   motors = new Motors()
+  encoder = new Encoders()
+  distance = new AngleToDistance()
  
-  reaction(t) -> robot.drive {=
+  reaction(t) -> robot.drive, encoder.trigger {=
+      lf_set(encoder.trigger, true);
       lf_set(robot.drive, self->drive);
-      // Toggle the drive state variable for next time.
-      self->drive = !self->drive;
+      // self->drive = !self->drive;
   =}
+
   robot.notify -> display.line0;
   robot.right_power -> motors.right_power;
   robot.left_power -> motors.left_power;
+
+  encoder.right -> distance.right_rotation;
+  encoder.left -> distance.left_rotation;
+
+
 }

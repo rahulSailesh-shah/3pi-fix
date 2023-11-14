@@ -1,0 +1,248 @@
+/**
+ * Template for robot driving lab exercises.
+ * This template just periodically switches between a
+ * STOPPED and a DRIVING mode, updating the LCD display
+ * on each change of mode.
+ */
+ target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    threading: false,
+  }
+  
+  import Display from "lib/Display.lf"
+  import Motors from "lib/Motors.lf"
+  import Encoders from "lib/Encoders.lf"
+  import GyroAngle from "lib/IMU.lf"
+  import Bump from "lib/Bump.lf"
+  
+  reactor Robot {
+    input drive:bool 
+    input changeDir:bool
+    input x:float;
+    input y:float;
+    input z:float;
+    
+    output notify:string   // Notify of mode change.
+    output right_power:float
+    output left_power:float
+    output resetD:bool;
+    output restart:bool;
+
+    state angle:float = 88;
+
+    reaction(startup) -> notify {=
+      lf_set(notify, "INIT");
+    =}
+  
+    initial mode STOPPED {
+      reaction(drive) ->  DRIVING, notify, right_power, left_power, resetD {=
+        if (drive->value) {
+          lf_set(notify, "DRIVING");
+          lf_set(resetD, true);
+          lf_set(left_power, 0.098);
+          lf_set(right_power, 0.1);
+          lf_set_mode(DRIVING);
+        }
+      =}
+    }
+  
+    mode DRIVING {
+      reaction(drive, changeDir) -> TURN_LEFT, reset(BUMPED), notify, right_power, left_power, resetD{=
+        if (!drive->value && !changeDir->value) {
+          lf_set(resetD, true);
+          lf_set(notify, "STOPPED");
+          lf_set(left_power, 0);
+          lf_set(right_power, 0);
+          lf_set_mode(TURN_LEFT);
+        }
+        else if (drive->value && changeDir->value) {
+          lf_set(left_power, 0);
+          lf_set(right_power, 0);
+          lf_set_mode(BUMPED);
+        }
+
+        printf("Mode: Driving, dir:%d, drive: %d\n", changeDir->value, drive->value);
+      =}
+    }
+
+    mode TURN_LEFT {
+        reaction(drive, x,y,z) -> STOPPED, right_power, left_power, notify, restart {=
+            if(!drive->value){
+                lf_set(notify, "LEFT");
+                lf_set(right_power, 0.1);
+                // printf("%f, %f, %f\n", x->value, y->value, z->value);
+
+                if(z->value >= self->angle){
+                    self->angle += 88;
+                    lf_set(left_power, 0);
+                    lf_set(right_power, 0);
+                    lf_set(restart, true);
+                    lf_set_mode(STOPPED);
+                }
+            } 
+        =}
+      }
+
+    mode BUMPED {
+        logical action clearBack; 
+        logical action clearRight; 
+        logical action clearLeft;
+        logical action clearFront; 
+
+        reaction(changeDir, drive, x,y,z) -> STOPPED, right_power, left_power, notify, restart, clearBack, clearFront {=
+            if(changeDir->value){
+                lf_set(notify, "BUMPED");
+                //Go back for 1 second
+                lf_set(left_power, -0.1);
+                lf_set(right_power, -0.1);
+                lf_schedule(clearBack, SEC(1));
+
+                // printf("%f, %f, %f\n", x->value, y->value, z->value);
+                printf("Mode: BUMPED, dir:%d, drive: %d\n", changeDir->value, drive->value);
+
+            } 
+        =}
+
+        reaction(clearBack) -> left_power, right_power, clearRight{=
+            // Turn Right
+            lf_set(right_power, 0);
+            lf_set(left_power, 0.1);
+            lf_schedule(clearRight, SEC(1));
+        =}
+
+        reaction(clearRight) -> left_power, right_power, clearFront{=
+            // Stop Turning right
+            lf_set(right_power, 0);
+            lf_set(left_power, 0);
+            //Move front
+            lf_set(right_power, 0.1);
+            lf_set(left_power, 0.1);
+            lf_schedule(clearFront, SEC(1));
+        =}
+
+        reaction(clearFront) -> left_power, right_power, clearLeft{=
+            // Stop after moving front.
+            lf_set(right_power, 0);
+            lf_set(left_power, 0);
+            //Turn Left
+            lf_set(right_power, 0.1);
+            lf_set(left_power, 0);
+            lf_schedule(clearLeft, SEC(1));
+        =}
+
+        reaction(clearLeft) -> STOPPED, left_power, right_power, clearFront, restart{=
+            // Stop Turning left
+            lf_set(right_power, 0);
+            lf_set(left_power, 0);
+            //Move front
+            lf_set(restart, true);
+            lf_set_mode(STOPPED);           
+        =}
+    }
+  }
+  
+  reactor AngleToDistance{
+    input left_rotation:int32_t;
+    input right_rotation:int32_t;
+    input resetD:bool;
+
+    output left_distance:float;
+    output right_distance:float;
+    output ld:string;
+    output rd:string;
+
+    state prevLRotation:int32_t = 0;
+    state prevRRotation:int32_t = 0;
+    state rR:int32_t = 0;
+    state lR:int32_t = 0;
+
+
+    reaction(resetD){=
+        self->prevLRotation = self->lR;
+        self->prevRRotation = self->rR;
+    =}
+  
+    reaction(left_rotation) -> left_distance, ld {=
+      float leftD = ((left_rotation->value) - (self->prevLRotation))/ 3586.4;
+      self->lR = left_rotation->value;
+      static char buf[17];
+      snprintf(buf, 17, "L: %.2fm", leftD);
+      lf_set(left_distance, leftD);
+      lf_set(ld, buf);
+    =}
+  
+    reaction(right_rotation) ->  right_distance, rd {=
+      float rightD = ((right_rotation->value) - (self->prevRRotation))/ 3586.4;
+      self->rR = right_rotation->value;
+
+      static char buf[17];
+      snprintf(buf, 17, "R: %.2fm", rightD);
+      lf_set(right_distance, rightD);
+      lf_set(rd, buf);
+    =}
+  
+  }
+  
+  main reactor {
+    timer t(0, 100ms)
+
+    state drive:bool = true
+    state changeDir:bool = false
+    state left_rotation:int = 0;
+    state right_rotation:int = 0;
+    state dir:string = "UP";
+
+    robot = new Robot()
+    display = new Display()
+    motors = new Motors()
+    encoder = new Encoders()
+    distance = new AngleToDistance()
+    angle = new GyroAngle()
+    bump = new Bump()
+
+    angle.x -> robot.x;
+    angle.y -> robot.y;
+    angle.z -> robot.z;
+  
+    robot.right_power -> motors.right_power;
+    robot.left_power -> motors.left_power;
+    robot.resetD -> distance.resetD;
+  
+    encoder.right -> distance.right_rotation;
+    encoder.left -> distance.left_rotation;
+
+    robot.notify -> display.line0;
+    distance.ld -> display.line2;
+    distance.rd -> display.line3;
+
+    reaction(t) -> robot.drive, robot.changeDir, encoder.trigger, angle.trigger {=
+        lf_set(encoder.trigger, true);
+        lf_set(robot.drive, self->drive);
+        lf_set(robot.changeDir, self->changeDir);
+        lf_set(angle.trigger, true);
+    =}
+
+    reaction(distance.left_distance, distance.right_distance) -> angle.trigger {=
+        if(distance.left_distance->value >= 0.5 || distance.right_distance->value >= 0.5){
+            self->drive = false;
+        }
+    =}
+
+    reaction(robot.restart){=
+        self->drive = true;
+        self->changeDir = false;
+    =}
+
+    reaction(bump.left) {=
+        self->changeDir = true;
+    =}
+
+    reaction(bump.right) {=
+        self->changeDir = true;
+    =}
+
+  }
+  

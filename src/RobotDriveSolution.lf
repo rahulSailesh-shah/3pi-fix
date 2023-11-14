@@ -32,10 +32,9 @@ reactor Robot {
       if (drive->value) {
         lf_set_mode(DRIVING);
         lf_set(notify, "DRIVING");
-        lf_set(right_power, 0.9);
-        lf_set(left_power, 0.9);
-      }
-      
+        lf_set(right_power, 0.1);
+        lf_set(left_power, 0.1);
+      } 
     =}
   }
 
@@ -47,7 +46,6 @@ reactor Robot {
         lf_set(right_power, 0);
         lf_set(left_power, 0);
       }
-     
     =}
   }
 }
@@ -61,9 +59,9 @@ main reactor {
  
   reaction(t) -> robot.drive {=
       lf_set(robot.drive, self->drive);
-      // Toggle the drive state variable for next time.
       self->drive = !self->drive;
   =}
+  
   robot.notify -> display.line0;
   robot.right_power -> motors.right_power;
   robot.left_power -> motors.left_power;

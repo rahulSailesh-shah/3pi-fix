@@ -18,11 +18,14 @@ import Encoders from "lib/Encoders.lf"
 main reactor {
   display = new Display()
   encoder = new Encoders()
+  state drive:bool = true
+
 
   timer t(0, 1s)
 
   reaction(t) -> encoder.trigger {=
-    lf_set(encoder.trigger, true);
+    self->drive = !self->drive;
+    lf_set(encoder.trigger, self->drive);
   =}
 
   reaction(startup) -> display.line0 {=

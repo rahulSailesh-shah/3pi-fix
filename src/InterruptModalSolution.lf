@@ -1,0 +1,73 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    threading: false,
+    keepalive: true
+  }
+
+  import Display from "lib/Display.lf"
+  
+  preamble {=
+    #include <stdio.h>
+    #include <pico/stdlib.h>
+    #include <hardware/gpio.h>
+  =}
+
+
+  main reactor {
+    preamble {=
+        static void* action;
+        interval_t last_action_time = 0;
+
+        void interrupt_callback(uint gpio, uint32_t event_mask){
+            interval_t elapsed_time = lf_time_physical()/1000000;
+            if(elapsed_time - last_action_time > 500){
+                lf_schedule(action, 0);
+                last_action_time = elapsed_time;
+            }
+        }
+      =}
+
+    physical action a;
+    d = new Display();
+    state counter:int = 0;
+  
+    initial mode CountUp{
+        timer tup(100ms, 500ms);
+        reaction(a) -> reset(CountDown) {=
+            printf("UP\n");
+            lf_set_mode(CountDown);
+        =}
+
+        reaction(tup) -> d.line0  {=
+            static char str[10]; 
+            self->counter++;
+            snprintf(str, 10, "%d", self->counter); 
+            lf_set(d.line0, str);
+            printf("%d ",self->counter);
+        =}
+    }
+
+    mode CountDown{
+        timer tdown(100ms, 1000ms);
+        reaction(a) -> reset(CountUp) {=
+            printf("DOWN\n");
+            lf_set_mode(CountUp);
+        =}
+
+        reaction(tdown) -> d.line0 {=
+            static char str[10];   
+            self->counter--;
+            snprintf(str, 10, "%d", self->counter); 
+            lf_set(d.line0, str);
+            printf("%d ",self->counter);
+        =}
+    }
+
+    reaction(startup) -> a {=
+        action = a;
+        gpio_set_irq_enabled_with_callback(PICO_DEFAULT_LED_PIN, true, GPIO_IRQ_EDGE_FALL, interrupt_callback);
+    =}
+  }

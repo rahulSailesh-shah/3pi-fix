@@ -1,0 +1,172 @@
+/**
+ * Template for robot driving lab exercises.
+ * This template just periodically switches between a
+ * STOPPED and a DRIVING mode, updating the LCD display
+ * on each change of mode.
+ */
+ target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    threading: false,
+  }
+  
+  import Display from "lib/Display.lf"
+  import Motors from "lib/Motors.lf"
+  import Encoders from "lib/Encoders.lf"
+  import GyroAngle from "lib/IMU.lf"
+  
+  reactor Robot {
+    input drive:bool 
+    input x:float;
+    input y:float;
+    input z:float;
+
+    
+    output notify:string   // Notify of mode change.
+    output right_power:float
+    output left_power:float
+    output resetD:bool;
+    output restart:bool;
+
+    state angle:float = 85;
+
+    
+    reaction(startup) -> notify {=
+      lf_set(notify, "INIT");
+    =}
+  
+    initial mode STOPPED {
+      reaction(drive) ->  DRIVING, notify, right_power, left_power, resetD {=
+        if (drive->value) {
+          lf_set(notify, "DRIVING");
+          lf_set(resetD, true);
+          lf_set(left_power, 0.098);
+          lf_set(right_power, 0.1);
+          lf_set_mode(DRIVING);
+        }
+      =}
+    }
+  
+    mode DRIVING {
+      reaction(drive) -> TURN_LEFT, notify, right_power, left_power, resetD{=
+        if (!drive->value) {
+          lf_set(resetD, true);
+          lf_set(notify, "STOPPED");
+          lf_set(left_power, 0);
+          lf_set(right_power, 0);
+          lf_set_mode(TURN_LEFT);
+        }
+      =}
+    }
+
+    mode TURN_LEFT {
+        reaction(drive, x,y,z) -> STOPPED, right_power, left_power, notify, restart {=
+            if(!drive->value){
+                lf_set(notify, "LEFT");
+                lf_set(right_power, 0.1);
+                printf("%f, %f, %f\n", x->value, y->value, z->value);
+
+                if(z->value >= self->angle){
+                    self->angle += 85;
+                    lf_set(left_power, 0);
+                    lf_set(right_power, 0);
+                    lf_set(restart, true);
+                    lf_set_mode(STOPPED);
+                }
+            }
+            
+        =}
+      }
+  }
+  
+  reactor AngleToDistance{
+    input left_rotation:int32_t;
+    input right_rotation:int32_t;
+    input resetD:bool;
+
+    output left_distance:float;
+    output right_distance:float;
+    output ld:string;
+    output rd:string;
+
+    state prevLRotation:int32_t = 0;
+    state prevRRotation:int32_t = 0;
+    state rR:int32_t = 0;
+    state lR:int32_t = 0;
+
+
+    reaction(resetD){=
+        self->prevLRotation = self->lR;
+        self->prevRRotation = self->rR;
+    =}
+  
+    reaction(left_rotation) -> left_distance, ld {=
+      float leftD = ((left_rotation->value) - (self->prevLRotation))/ 3586.4;
+      self->lR = left_rotation->value;
+      static char buf[17];
+      snprintf(buf, 17, "L: %.2fm", leftD);
+      lf_set(left_distance, leftD);
+      lf_set(ld, buf);
+    =}
+  
+    reaction(right_rotation) ->  right_distance, rd {=
+      float rightD = ((right_rotation->value) - (self->prevRRotation))/ 3586.4;
+      self->rR = right_rotation->value;
+
+      static char buf[17];
+      snprintf(buf, 17, "R: %.2fm", rightD);
+      lf_set(right_distance, rightD);
+      lf_set(rd, buf);
+    =}
+  
+  }
+  
+  main reactor {
+    timer t(0, 100ms)
+
+    state drive:bool = true
+    state left_rotation:int = 0;
+    state right_rotation:int = 0;
+    state dir:string = "UP";
+
+    robot = new Robot()
+    display = new Display()
+    motors = new Motors()
+    encoder = new Encoders()
+    distance = new AngleToDistance()
+    angle = new GyroAngle()
+
+    angle.x -> robot.x;
+    angle.y -> robot.y;
+    angle.z -> robot.z;
+  
+    robot.right_power -> motors.right_power;
+    robot.left_power -> motors.left_power;
+    robot.resetD -> distance.resetD;
+  
+    encoder.right -> distance.right_rotation;
+    encoder.left -> distance.left_rotation;
+
+    robot.notify -> display.line0;
+    distance.ld -> display.line1;
+    distance.rd -> display.line2;
+
+    reaction(t) -> robot.drive, encoder.trigger, angle.trigger {=
+        lf_set(encoder.trigger, true);
+        lf_set(robot.drive, self->drive);
+        lf_set(angle.trigger, true);
+    =}
+
+    reaction(distance.left_distance, distance.right_distance) -> angle.trigger {=
+        if(distance.left_distance->value >= 0.5 || distance.right_distance->value >= 0.5){
+            self->drive = false;
+        }
+    =}
+
+    reaction(robot.restart){=
+        self->drive = true;
+    =}
+  }
+  
