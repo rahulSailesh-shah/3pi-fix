@@ -31,7 +31,7 @@
     output resetD:bool;
     output restart:bool;
 
-    state angle:float = 88;
+    state angle:float = 90;
 
     reaction(startup) -> notify {=
       lf_set(notify, "INIT");
@@ -42,7 +42,7 @@
         if (drive->value) {
           lf_set(notify, "DRIVING");
           lf_set(resetD, true);
-          lf_set(left_power, 0.098);
+          lf_set(left_power, 0.1);
           lf_set(right_power, 0.1);
           lf_set_mode(DRIVING);
         }
@@ -76,7 +76,7 @@
                 // printf("%f, %f, %f\n", x->value, y->value, z->value);
 
                 if(z->value >= self->angle){
-                    self->angle += 88;
+                    self->angle += 90;
                     lf_set(left_power, 0);
                     lf_set(right_power, 0);
                     lf_set(restart, true);

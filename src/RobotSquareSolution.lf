@@ -30,7 +30,7 @@
     output resetD:bool;
     output restart:bool;
 
-    state angle:float = 85;
+    state angle:float = 90;
 
     
     reaction(startup) -> notify {=
@@ -69,7 +69,7 @@
                 printf("%f, %f, %f\n", x->value, y->value, z->value);
 
                 if(z->value >= self->angle){
-                    self->angle += 85;
+                    self->angle += 90;
                     lf_set(left_power, 0);
                     lf_set(right_power, 0);
                     lf_set(restart, true);

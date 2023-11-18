@@ -35,7 +35,7 @@ reactor Robot {
       if (drive->value) {
         lf_set_mode(DRIVING);
         lf_set(notify, "DRIVING");
-        lf_set(left_power, 0.098);
+        lf_set(left_power, 0.1);
         lf_set(right_power, 0.1);
         
       }
